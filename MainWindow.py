@@ -1,10 +1,17 @@
 import os
 import shutil
 import sys
+import zipfile
 
 from PyQt5 import QtGui
 from PyQt5 import QtWidgets
 from qtpy import QtCore
+
+
+def filter_list(list_widget, text):
+    items = [list_widget.item(i) for i in range(list_widget.count())]
+    for item in items:
+        item.setHidden(text.lower() not in item.text().lower())
 
 
 class CustomBooksLibWidget(QtWidgets.QWidget):
@@ -19,7 +26,7 @@ class CustomBooksLibWidget(QtWidgets.QWidget):
 
         # Список
         self.assembly_list = QtWidgets.QListWidget(self)
-        self.assembly_list.setGeometry(425, 55, 450, 405)
+        self.assembly_list.setGeometry(445, 80, 450, 405)
 
         self.populate_assembly_list()
 
@@ -31,25 +38,70 @@ class CustomBooksLibWidget(QtWidgets.QWidget):
 
         # Поле ввода
         self.add_field = QtWidgets.QLineEdit(self)
+        self.assembly_search = QtWidgets.QLineEdit(self)
+
         self.add_field.setGeometry(5, 25, 800, 25)
+        self.assembly_search.setGeometry(445, 55, 450, 25)
+
+        self.assembly_search.textChanged.connect(lambda: filter_list(self.assembly_list, self.assembly_search.text()))
+
 
         # Кнопки
         self.delete_button = QtWidgets.QPushButton("Удалить", self)
-        self.delete_button.setGeometry(5, 250, 200, 50)
+        self.delete_button.setGeometry(5, 150, 200, 50)
         self.delete_button.clicked.connect(self.delete_item)
 
         self.add_button = QtWidgets.QPushButton("Добавить", self)
-        self.add_button.setGeometry(5, 325, 200, 50)
+        self.add_button.setGeometry(5, 200, 200, 50)
         self.add_button.clicked.connect(self.add_item)
 
         self.choose_button = QtWidgets.QPushButton("Выбрать", self)
-        self.choose_button.setGeometry(5, 400, 200, 50)
+        self.choose_button.setGeometry(5, 250, 200, 50)
         self.choose_button.clicked.connect(self.choose_item_to_manipulate)
+
+        self.archive_button = QtWidgets.QPushButton("Архивировать", self)
+        self.archive_button.setGeometry(5, 300, 200, 50)
+        self.archive_button.clicked.connect(self.archive_directory)
+
+        self.unpack_button = QtWidgets.QPushButton("Разархивировать", self)
+        self.unpack_button.setGeometry(5, 350, 200, 50)
+        self.unpack_button.clicked.connect(self.unpack_zip_file)
 
     def save_widget_changes(self):
         """Выводим изменения"""
         self.assembly_list.clear()
         self.populate_assembly_list()
+
+    def unpack_zip_file(self):
+        """Разархивируем zip-архив"""
+        selected_item = self.assembly_list.currentItem()
+        if zipfile.is_zipfile("BooksLib/" + selected_item.text()):
+            directory_path = "BooksLib/" + selected_item.text()[0:-5] # Удаляем расширение и эмодзи
+            zip_name = directory_path + "📚.zip"
+            with zipfile.ZipFile(zip_name, 'r') as zip_file:
+                zip_file.extractall(directory_path)
+
+            zip_file.close()  # Закрываем zip-архив
+            os.remove(zip_name)  # Удаляем zip-архив
+
+            self.save_widget_changes()
+
+    def archive_directory(self):
+        """Архивируем папку"""
+        selected_item = self.assembly_list.currentItem()
+        if os.path.isdir("BooksLib/" + selected_item.text()):
+            directory_path = "BooksLib/" + selected_item.text()
+            zip_name = directory_path + "📚.zip"
+            with zipfile.ZipFile(zip_name, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                for root, dirs, files in os.walk(directory_path):
+                    for file in files:
+                        file_path = os.path.join(root, file) # Получаем путь к файлу
+                        zip_file.write(file_path, os.path.relpath(file_path, directory_path)) # Записываем файл в архив
+
+            zip_file.close()  # Закрываем zip-архив
+            shutil.rmtree(directory_path)  # Удаляем исходную директорию после архивации
+
+            self.save_widget_changes()
 
     def add_item(self):
         """Создаём новую папку"""
@@ -57,11 +109,13 @@ class CustomBooksLibWidget(QtWidgets.QWidget):
             new_path = os.path.join("BooksLib", self.add_field.text())
             os.mkdir(new_path)
             self.save_widget_changes()
+        self.add_field.setText("")
 
     def choose_item_to_manipulate(self):
         """Выбираем папку"""
-        if self.assembly_list.selectedItems():
-            selected_item = self.assembly_list.currentItem()
+        selected_item = self.assembly_list.currentItem()
+
+        if os.path.isdir("BooksLib/" + selected_item.text()):
             widget_directory_path = "BooksLib/" + selected_item.text()
             self.widget_path_sender(widget_directory_path)
 
@@ -93,7 +147,11 @@ class CustomBooksLibWidget(QtWidgets.QWidget):
 
     def get_dirs_in_directory(self):
         """Получаем список директорий в BooksLib"""
-        dirs = [f for f in os.listdir("BooksLib") if os.path.isdir(os.path.join("BooksLib", f))]
+        dirs = [f for f in os.listdir("BooksLib") if
+                os.path.isdir(os.path.join("BooksLib", f))
+                or
+                zipfile.is_zipfile(os.path.join("BooksLib", f))]
+
         return dirs
 
     def populate_assembly_list(self):
@@ -112,38 +170,45 @@ class MainWindow(QtWidgets.QWidget):
         self.custom_books_lib_widget = None
 
         # Списки
-        self.list1 = QtWidgets.QListWidget(self)
-        self.list2 = QtWidgets.QListWidget(self)
+        self.comp_list = QtWidgets.QListWidget(self)
+        self.stor_list = QtWidgets.QListWidget(self)
 
-        self.list1.setGeometry(350, 155, 400, 530)
-        self.list2.setGeometry(750, 155, 400, 530)
+        self.comp_list.setGeometry(325, 155, 400, 530)
+        self.stor_list.setGeometry(750, 155, 400, 530)
 
-        self.populate_list(self.list1, "iofolder/comp_path.txt")
-        self.populate_list(self.list2, "iofolder/stor_path.txt")
+        self.populate_list(self.comp_list, "iofolder/comp_path.txt")
+        self.populate_list(self.stor_list, "iofolder/stor_path.txt")
 
-        self.list1.setDragEnabled(True)
-        self.list1.setAcceptDrops(True)
-        self.list1.setDropIndicatorShown(True)
-        self.list1.setDefaultDropAction(QtCore.Qt.MoveAction)
-        self.list1.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
-        self.list1.setDragDropMode(QtWidgets.QAbstractItemView.DragDrop)
+        self.comp_list.setDragEnabled(True)
+        self.comp_list.setAcceptDrops(True)
+        self.comp_list.setDropIndicatorShown(True)
+        self.comp_list.setDefaultDropAction(QtCore.Qt.MoveAction)
+        self.comp_list.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
+        self.comp_list.setDragDropMode(QtWidgets.QAbstractItemView.DragDrop)
 
-        self.list2.setDragEnabled(True)
-        self.list2.setAcceptDrops(True)
-        self.list2.setDropIndicatorShown(True)
-        self.list2.setDefaultDropAction(QtCore.Qt.MoveAction)
-        self.list2.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
-        self.list2.setDragDropMode(QtWidgets.QAbstractItemView.DragDrop)
+        self.stor_list.setDragEnabled(True)
+        self.stor_list.setAcceptDrops(True)
+        self.stor_list.setDropIndicatorShown(True)
+        self.stor_list.setDefaultDropAction(QtCore.Qt.MoveAction)
+        self.stor_list.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
+        self.stor_list.setDragDropMode(QtWidgets.QAbstractItemView.DragDrop)
 
         # Поля ввода
         self.comp_TextField = QtWidgets.QLineEdit(self)
         self.stor_TextField = QtWidgets.QLineEdit(self)
+        self.comp_search = QtWidgets.QLineEdit(self)
+        self.stor_search = QtWidgets.QLineEdit(self)
 
         self.comp_TextField.setText(self.path_checker("iofolder/comp_path.txt"))
         self.stor_TextField.setText(self.path_checker("iofolder/stor_path.txt"))
 
         self.comp_TextField.setGeometry(10, 30, 1000, 25)
         self.stor_TextField.setGeometry(10, 90, 1000, 25)
+        self.comp_search.setGeometry(325, 125, 400, 25)
+        self.stor_search.setGeometry(750, 125, 400, 25)
+
+        self.comp_search.textChanged.connect(lambda: filter_list(self.comp_list, self.comp_search.text()))
+        self.stor_search.textChanged.connect(lambda: filter_list(self.stor_list, self.stor_search.text()))
 
         # Лейблы
 
@@ -235,21 +300,22 @@ class MainWindow(QtWidgets.QWidget):
 
     def restart(self):
         """Перезапуск программы"""
+
         QtCore.QCoreApplication.quit()
         QtCore.QProcess.startDetached(sys.executable, sys.argv)
 
     def save_changes(self):
         """Сохраняем изменения в файлах, но не в папках"""
         directory_path1, directory_path2 = self.get_directory_paths()
-        items1 = [self.list1.item(i).text() for i in range(self.list1.count())]
-        items2 = [self.list2.item(i).text() for i in range(self.list2.count())]
+        items1 = [self.comp_list.item(i).text() for i in range(self.comp_list.count())]
+        items2 = [self.stor_list.item(i).text() for i in range(self.stor_list.count())]
         if directory_path1 != directory_path2:
             self.process_directory1(directory_path1, items1)
             self.process_directory2(directory_path2, items2)
-            self.list1.clear()
-            self.list2.clear()
-            self.populate_list(self.list1, "iofolder/comp_path.txt")
-            self.populate_list(self.list2, "iofolder/stor_path.txt")
+            self.comp_list.clear()
+            self.stor_list.clear()
+            self.populate_list(self.comp_list, "iofolder/comp_path.txt")
+            self.populate_list(self.stor_list, "iofolder/stor_path.txt")
 
     def path_checker(self, path):
         """Проверяем путь. В случае, если файл не найден, возвращаем C:\\Users"""
@@ -285,7 +351,7 @@ class MainWindow(QtWidgets.QWidget):
 
     def start_drag(self, event):
         """Начало перетаскивания"""
-        item = self.list2.currentItem()
+        item = self.stor_list.currentItem()
         if item:
             pixmap = QtGui.QPixmap(item.size())
             item.render(pixmap)
@@ -293,14 +359,14 @@ class MainWindow(QtWidgets.QWidget):
             mime_data = QtCore.QMimeData()
             mime_data.setData("application/x-qabstractitemmodeldatalist", item.data(QtCore.Qt.UserRole))
 
-            drag = QtGui.QDrag(self.list2)
+            drag = QtGui.QDrag(self.stor_list)
             drag.setMimeData(mime_data)
             drag.setPixmap(pixmap)
             drag.setHotSpot(event.pos() - item.rect().topLeft())
 
             if drag.exec_(QtCore.Qt.MoveAction) == QtCore.Qt.MoveAction:
-                self.list2.takeItem(self.list2.row(item))
-                self.list1.addItem(item.text())
+                self.stor_list.takeItem(self.stor_list.row(item))
+                self.comp_list.addItem(item.text())
 
     def dragEnterEvent(self, event):
         """Принимаем перетаскивание"""
@@ -314,11 +380,11 @@ class MainWindow(QtWidgets.QWidget):
         data = event.mimeData().data('application/x-qabstractitemmodeldatalist')
         stream = QtCore.QDataStream(data, QtCore.QIODevice.ReadOnly)
 
-        if self.list1.rect().contains(event.pos()):
-            target_list = self.list1
+        if self.comp_list.rect().contains(event.pos()):
+            target_list = self.comp_list
 
         else:
-            target_list = self.list2
+            target_list = self.stor_list
 
         while not stream.atEnd():
             row, column, parent = QtCore.QModelIndex(), QtCore.QModelIndex(), QtCore.QModelIndex()
