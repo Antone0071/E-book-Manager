@@ -1,1 +1,0 @@
-BooksLib/TEST_DIR_FOR_PROJECT
