@@ -11,9 +11,9 @@ from qtpy import QtCore
 
 
 def filter_list(list_widget, text):
-    items = [list_widget.item(i) for i in range(list_widget.count())]
-    for item in items:
-        item.setHidden(text.lower() not in item.text().lower())
+    text_lower = text.lower()
+    for i in range(list_widget.count()):
+        list_widget.item(i).setHidden(text_lower not in list_widget.item(i).text().lower())
 
 
 class MainWindow(QtWidgets.QWidget):
@@ -129,8 +129,11 @@ class MainWindow(QtWidgets.QWidget):
 
     def open_custom_books_lib_widget(self):
         """Создание и отображение кастомного виджета"""
+        if os.path.exists("BooksLib"):
+            pass
+        else:
+            os.mkdir("BooksLib")
         self.custom_books_lib_widget = CustomBooksLibWidget(self)
-
         self.setDisabled(True)
         self.custom_books_lib_widget.show()
 
@@ -227,25 +230,6 @@ class MainWindow(QtWidgets.QWidget):
         path1 = self.path_checker("iofolder/comp_path.txt")
         path2 = self.path_checker("iofolder/stor_path.txt")
         return path1, path2
-
-    def start_drag(self, event):
-        # Начало перетаскивания
-        item = self.stor_list.currentItem()
-        if item:
-            pixmap = QtGui.QPixmap(item.size())
-            item.render(pixmap)
-
-            mime_data = QtCore.QMimeData()
-            mime_data.setData("application/x-qabstractitemmodeldatalist", item.data(QtCore.Qt.UserRole))
-
-            drag = QtGui.QDrag(self.stor_list)
-            drag.setMimeData(mime_data)
-            drag.setPixmap(pixmap)
-            drag.setHotSpot(event.pos() - item.rect().topLeft())
-
-            if drag.exec_(QtCore.Qt.MoveAction) == QtCore.Qt.MoveAction:
-                self.stor_list.takeItem(self.stor_list.row(item))
-                self.comp_list.addItem(item.text())
 
 
 class MyListWidget(QtWidgets.QListWidget):
